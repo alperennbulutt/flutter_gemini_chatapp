@@ -1,3 +1,3 @@
 // ignore_for_file: constant_identifier_names
 
-const String GEMINE_API_KEY = "AIzaSyCGKBsBm-i00hGfYu9G5qGLTdF99VEDYV8";
+const String GEMINE_API_KEY = "your_gemini_api_key_here";
