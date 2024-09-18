@@ -16,12 +16,12 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final Gemini gemini = Gemini.instance;
-  List<ChatMessage> messages = [];
+  final List<ChatMessage> _messages = [];
 
-  final ChatUser currentUser = ChatUser(
+  final ChatUser _currentUser = ChatUser(
       id: '0', firstName: "User", profileImage: "https://images.seeklogo.com/logo-png/55/1/divertida-mente-nojinho-logo-png_seeklogo-551767.png");
 
-  final ChatUser geminiUser = ChatUser(
+  final ChatUser _geminiUser = ChatUser(
       id: '1',
       firstName: "Gemini",
       profileImage: "https://images.seeklogo.com/logo-png/53/1/wi-max-fantasma-fantasminha-logo-png_seeklogo-533227.png?v=638622595440000000");
@@ -32,79 +32,96 @@ class _HomePageState extends State<HomePage> {
       appBar: AppBar(
         title: const Text('DevRuler Chat App'),
       ),
-      body: _body(context),
-    );
-  }
-
-  Widget _body(BuildContext context) {
-    return DashChat(
+      body: DashChat(
         inputOptions: InputOptions(trailing: [
           IconButton(
             onPressed: _sendMediaMessage,
             icon: const Icon(Icons.image),
           ),
         ]),
-        currentUser: currentUser,
+        currentUser: _currentUser,
         onSend: _sendMessage,
-        messages: messages);
+        messages: _messages,
+      ),
+    );
   }
 
   void _sendMessage(ChatMessage chatMessage) {
     setState(() {
-      messages = [chatMessage, ...messages];
+      _messages.insert(0, chatMessage);
     });
 
-    try {
-      String question = chatMessage.text;
-      List<Uint8List>? images;
-
-      if (chatMessage.medias?.isNotEmpty ?? false) {
-        images = [
-          File(chatMessage.medias!.first.url).readAsBytesSync(), // Convert the image to bytes
-        ];
-      }
-
-      gemini.streamGenerateContent(question, images: images).listen((event) {
-        ChatMessage? lastMessage = messages.firstOrNull;
-        if (lastMessage != null && lastMessage.user.id == geminiUser.id) {
-          String response = event.content?.parts?.fold("", (previousValue, current) => "$previousValue ${current.text}") ?? "";
-          lastMessage = messages.removeAt(0);
-
-          lastMessage.text = response;
-          setState(() {
-            messages = [lastMessage!, ...messages];
-          });
-        } else {
-          String response = event.content?.parts?.fold("", (previousValue, current) => "$previousValue ${current.text}") ?? "";
-          ChatMessage message = ChatMessage(user: geminiUser, createdAt: DateTime.now(), text: response);
-
-          setState(() {
-            messages = [message, ...messages];
-          });
-        }
-      });
-    } catch (e) {
-      log(e.toString());
+    if (chatMessage.text.isNotEmpty || chatMessage.medias?.isNotEmpty == true) {
+      _handleGeminiResponse(chatMessage);
     }
   }
 
-  void _sendMediaMessage() async {
-    ImagePicker picker = ImagePicker();
-    XFile? file = await picker.pickImage(
-      source: ImageSource.gallery,
+  void _handleGeminiResponse(ChatMessage chatMessage) {
+    try {
+      String question = chatMessage.text;
+      List<Uint8List>? images = _extractImageBytes(chatMessage.medias);
+
+      gemini.streamGenerateContent(question, images: images).listen((event) {
+        String response = event.content?.parts?.map((part) => part.text).join(" ") ?? "";
+
+        if (_isLastMessageFromGemini()) {
+          _updateLastMessage(response);
+        } else {
+          _addNewGeminiMessage(response);
+        }
+      });
+    } catch (e) {
+      log("Error in Gemini response: $e");
+    }
+  }
+
+  List<Uint8List>? _extractImageBytes(List<ChatMedia>? medias) {
+    if (medias?.isNotEmpty == true) {
+      return [File(medias!.first.url).readAsBytesSync()];
+    }
+    return null;
+  }
+
+  bool _isLastMessageFromGemini() {
+    return _messages.isNotEmpty && _messages.first.user.id == _geminiUser.id;
+  }
+
+  void _updateLastMessage(String response) {
+    setState(() {
+      _messages.first.text = response;
+    });
+  }
+
+  void _addNewGeminiMessage(String response) {
+    final geminiMessage = ChatMessage(
+      user: _geminiUser,
+      createdAt: DateTime.now(),
+      text: response,
     );
 
-    if (file != null) {
-      ChatMessage chatMessage = ChatMessage(
-        user: currentUser,
-        createdAt: DateTime.now(),
-        text: "Fotoğrafı açıklayabilir misin?",
-        medias: [
-          ChatMedia(url: file.path, fileName: "", type: MediaType.image),
-        ],
-      );
+    setState(() {
+      _messages.insert(0, geminiMessage);
+    });
+  }
 
-      _sendMessage(chatMessage);
+  void _sendMediaMessage() async {
+    try {
+      XFile? file = await ImagePicker().pickImage(source: ImageSource.gallery);
+
+      if (file != null) {
+        final mediaMessage = ChatMessage(
+          user: _currentUser,
+          createdAt: DateTime.now(),
+          text: "Fotoğrafı açıklayabilir misin?",
+          medias: [
+            ChatMedia(url: file.path, fileName: "", type: MediaType.image),
+          ],
+        );
+
+        _sendMessage(mediaMessage);
+      }
+    } catch (e) {
+      log("Error selecting image: $e");
     }
   }
 }
